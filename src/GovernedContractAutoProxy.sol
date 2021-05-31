@@ -21,19 +21,23 @@
 pragma solidity 0.5.16;
 //pragma experimental SMTChecker;
 
-import { IGovernedContract } from "./IGovernedContract.sol";
-import { IUpgradeProposal } from "./IUpgradeProposal.sol";
+import { IGovernedProxy } from "./IGovernedProxy.sol";
+import { GovernedProxy } from "./GovernedProxy.sol";
+import { GlobalConstants } from "./constants.sol";
+import { GovernedContract } from "./GovernedContract.sol";
 
-interface ISporkRegistry {
-    function createUpgradeProposal(
-        IGovernedContract _impl,
-        uint _period,
-        address payable _fee_payer
-    )
-        external payable
-        returns (IUpgradeProposal);
+/**
+ * GovernedContractAutoProxy is a version of GovernedContract which deploys its own proxy.
+ * This is useful to avoid a circular dependency between GovernedContract and GovernedProxy
+ * wherein they need each other's address in the constructor.
+ * If you want a new governed contract to create a proxy, pass address(0) when deploying
+ * otherwise, you can pass a proxy address like in normal GovernedContract
+ */
+contract GovernedContractAutoProxy is GovernedContract, GlobalConstants {
 
-    function consensusGasLimits()
-        external view
-        returns(uint callGas, uint xferGas);
+    constructor(address _proxy) public GovernedContract(_proxy) {
+        if (_proxy == address(0)) {
+            proxy = address(new GovernedProxy(this, IGovernedProxy(SPORK_REGISTRY)));
+        }
+    }
 }

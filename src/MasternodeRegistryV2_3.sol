@@ -1,4 +1,4 @@
-// Copyright 2021 The Energi Core Authors
+// Copyright 2019-2021 The Energi Core Authors
 // This file is part of Energi Core.
 //
 // Energi Core is free software: you can redistribute it and/or modify
@@ -22,122 +22,41 @@ pragma solidity 0.5.16;
 //pragma experimental SMTChecker;
 
 import { GlobalConstants } from "./constants.sol";
+import { GlobalConstantsV2 } from "./constantsV2.sol";
 import { IGovernedContract, GovernedContract } from "./GovernedContract.sol";
 import { IGovernedProxy } from "./IGovernedProxy.sol";
 import { IBlockReward } from "./IBlockReward.sol";
-import { IMasternodeRegistry } from "./IMasternodeRegistry.sol";
+import { IMasternodeRegistryV2 } from "./IMasternodeRegistryV2.sol";
 import { IMasternodeToken } from "./IMasternodeToken.sol";
 import { ITreasury } from "./ITreasury.sol";
 import { NonReentrant } from "./NonReentrant.sol";
 import { StorageBase }  from "./StorageBase.sol";
-
-
-/**
- * Permanent storage of Masternode Registry V1 data.
- */
-contract StorageMasternodeRegistryV1 is
-    StorageBase
-{
-    struct Info {
-        uint announced_block;
-        uint collateral;
-        bytes32 enode_0;
-        bytes32 enode_1;
-        address payable owner;
-        address prev;
-        address next;
-        uint32 ipv4address;
-    }
-
-    mapping(address => Info) public masternodes;
-    mapping(address => address) public owner_masternodes;
-
-    // NOTE: ABIEncoderV2 is not acceptable at the moment of development!
-
-    /**
-     * For initial setup.
-     */
-    function setMasternode(
-        address _masternode,
-        address payable _owner,
-        uint32 _ipv4address,
-        bytes32[2] calldata _enode,
-        uint _collateral,
-        uint _announced_block,
-        address _prev,
-        address _next
-    )
-        external
-        requireOwner
-    {
-        Info storage item = masternodes[_masternode];
-        address old_owner = item.owner;
-
-        if (old_owner != _owner) {
-            assert(old_owner == address(0));
-            owner_masternodes[_owner] = _masternode;
-        }
-
-        item.owner = _owner;
-        item.ipv4address = _ipv4address;
-        item.enode_0 = _enode[0];
-        item.enode_1 = _enode[1];
-        item.collateral = _collateral;
-        item.announced_block = _announced_block;
-        item.prev = _prev;
-        item.next = _next;
-    }
-
-    /**
-     * NOTE: Extra booleans are just more failsafe than bitfield or other approaches.
-     *       Conditional assignment is required to save gas.
-     */
-    function setMasternodePos(
-        address _masternode,
-        bool _set_prev, address _prev,
-        bool _set_next, address _next
-    )
-        external
-        requireOwner
-    {
-        Info storage item = masternodes[_masternode];
-
-        if (_set_prev) item.prev = _prev;
-        if (_set_next) item.next = _next;
-    }
-
-    function deleteMasternode(address _masternode)
-        external
-        requireOwner
-    {
-        delete owner_masternodes[masternodes[_masternode].owner];
-        delete masternodes[_masternode];
-    }
-}
-
+import { StorageMasternodeRegistryV1 } from "./MasternodeRegistryV1.sol";
 
 /**
  * MN-2: Genesis hardcoded version of MasternodeRegistry
  *
  * NOTE: it MUST NOT change after blockchain launch!
  */
-contract MasternodeRegistryV1 is
+contract MasternodeRegistryV2_3 is
     GlobalConstants,
+    GlobalConstantsV2,
     GovernedContract,
     IBlockReward,
-    IMasternodeRegistry,
+    IMasternodeRegistryV2,
     NonReentrant
 {
-    // NOTE: maybe this is too much...
-    event Heartbeat(
-        address indexed masternode
-    );
+    // MN-4 approximation logic:
+    // - the target is 1000 hearbeats per hour
+    // - {MN count} / 1000/3600 ~ {MN count} * 4
+    uint constant internal TARGET_HEARTBEATS_COEF = 4;
 
     enum Config {
         RequireValidation,
-        ValidationPeriod,
+        ValidationPeriods,
         CleanupPeriod,
-        InitialEverCollateral
+        InitialEverCollateral,
+        PaymentsPerBlock
     }
 
     // Data for migration
@@ -152,17 +71,17 @@ contract MasternodeRegistryV1 is
     address public current_masternode;
     uint public current_payouts;
     uint public require_validation;
-    uint public validation_period;
+    uint public validation_periods;
     uint public cleanup_period;
+    uint public payments_per_block;
     //---------------------------------
 
     // Not for migration
     struct Status {
         uint256 sw_features;
-        uint last_heartbeat;
+        uint next_heartbeat;
         uint inactive_since;
         uint validator_index;
-        uint invalidation_since;
         uint invalidations;
         uint seq_payouts;
         uint last_vote_epoch;
@@ -175,14 +94,20 @@ contract MasternodeRegistryV1 is
     uint public mn_active;
     mapping(address => Status) public mn_status;
     address[] public validator_list;
-    uint last_block_number;
+    uint public last_block_number;
+
+    uint public curr_validation_ends;
+    uint public curr_validation_offset;
+
+    bool migration_complete;
+    uint inactive_count;
     //---------------------------------
 
     constructor(
         address _proxy,
         IGovernedProxy _token_proxy,
         IGovernedProxy _treasury_proxy,
-        uint[4] memory _config
+        uint[5] memory _config
     )
         public
         GovernedContract(_proxy)
@@ -192,12 +117,15 @@ contract MasternodeRegistryV1 is
         treasury_proxy = _treasury_proxy;
 
         require_validation = _config[uint(Config.RequireValidation)];
-        validation_period = _config[uint(Config.ValidationPeriod)];
+        validation_periods = _config[uint(Config.ValidationPeriods)];
         cleanup_period = _config[uint(Config.CleanupPeriod)];
+        payments_per_block = _config[uint(Config.PaymentsPerBlock)];
+
+        require(validation_periods <= require_validation, "Validations > Require");
 
         uint initial_ever_collateral = _config[uint(Config.InitialEverCollateral)];
         mn_ever_collateral = initial_ever_collateral;
-        require(initial_ever_collateral >= MN_COLLATERAL_MIN, "Initial collateral");
+        require(initial_ever_collateral >= MN_COLLATERAL_V2_MIN, "Initial collateral");
     }
 
     // IMasternodeRegistry
@@ -222,11 +150,22 @@ contract MasternodeRegistryV1 is
         noReentry
     {
         address owner = _callerAddress();
-        StorageMasternodeRegistryV1 mn_storage = v1storage;
 
         // Check collateral
         //---
         uint balance = _announce_checkbalance(owner);
+
+        _announce(masternode, owner, balance, ipv4address, enode);
+    }
+
+    function _announce(
+        address masternode,
+        address owner,
+        uint balance,
+        uint32 ipv4address,
+        bytes32[2] memory enode
+    ) internal {
+        StorageMasternodeRegistryV1 mn_storage = v1storage;
 
         // Cleanup & checks
         //---
@@ -252,8 +191,8 @@ contract MasternodeRegistryV1 is
         );
 
         Status storage mnstatus = mn_status[masternode];
-        mnstatus.last_heartbeat = block.timestamp;
-        mnstatus.seq_payouts = balance / MN_COLLATERAL_MIN;
+        mnstatus.next_heartbeat = block.timestamp;
+        mnstatus.seq_payouts = balance / MN_COLLATERAL_V2_MIN;
         ++mn_active;
         ++mn_announced;
 
@@ -268,7 +207,6 @@ contract MasternodeRegistryV1 is
 
         // Validator logic is de-coupled for easier changes
         //---
-        mnstatus.invalidation_since = block.number;
         mnstatus.validator_index = validator_list.length;
         validator_list.push(masternode);
 
@@ -278,9 +216,8 @@ contract MasternodeRegistryV1 is
     }
 
     function _announce_checkbalance(address owner) internal view returns(uint balance) {
-        (balance,) = IMasternodeToken(address(token_proxy.impl())).balanceInfo(owner);
-        require(balance >= MN_COLLATERAL_MIN, "Invalid collateral");
-
+        (balance,) = _getCollateralInfo(owner);
+        require(balance >= MN_COLLATERAL_V2_MIN, "Invalid collateral");
     }
 
     function _announce_clear_old(StorageMasternodeRegistryV1 mn_storage, address owner) internal {
@@ -459,52 +396,29 @@ contract MasternodeRegistryV1 is
 
         require(_isActive(masternode, s), "Not active");
 
-        uint hearbeat_delay = block.timestamp - s.last_heartbeat;
-        require(hearbeat_delay > MN_HEARTBEAT_INTERVAL_MIN, "Too early");
+        require(s.next_heartbeat <= block.timestamp, "Too early");
 
-        s.last_heartbeat = block.timestamp;
+        s.next_heartbeat = block.timestamp + _newHeartbeatInterval();
         s.sw_features = sw_features;
-
-        emit Heartbeat(masternode);
     }
 
-    function invalidate(address masternode)
-        external
-        noReentry
-    {
-        address caller = _callerAddress();
-        require(caller != masternode, "Invalidation for self");
+    function _newHeartbeatInterval() internal view returns(uint delay) {
+        delay = mn_active * TARGET_HEARTBEATS_COEF;
 
-        uint vote_epoch = block.number / validation_period;
-
-        //---
-        Status storage cs = mn_status[caller];
-        require(_isActive(caller, cs), "Not active caller");
-        require(cs.last_vote_epoch < vote_epoch, "Already invalidated");
-        require(validationTarget(caller) == masternode, "Invalid target");
-
-        //---
-        Status storage s = mn_status[masternode];
-
-        require(_isActive(masternode, s), "Not active target");
-
-        //---
-        cs.last_vote_epoch = vote_epoch;
-        s.invalidations++;
-
-        emit Invalidation(masternode, caller);
+        if (delay < MN_HEARTBEAT_INTERVAL_MIN) {
+            delay = MN_HEARTBEAT_INTERVAL_MIN;
+        }
     }
 
-    function validationTarget(address masternode) public view returns(address target) {
-        uint total = validator_list.length;
+    /// @notice proof of service invalidation
+    /// @dev this is disabled due to chain split vulnerability in previous versions
+    /// @dev masternode address is the masternode to invalidate.
+    function invalidate(address /*masternode*/) external noReentry {
+        require(false, "invalidations disabled");
+    }
 
-        uint vperiod = validation_period;
-        uint offset = (block.number / vperiod % (total - 1)) + 1;
-
-        uint target_index = mn_status[masternode].validator_index;
-        target_index = (target_index + offset) % total;
-
-        return validator_list[target_index];
+    function validationTarget(address /*masternode*/) public view returns(address) {
+        return address(0);
     }
 
     function isActive(address masternode) external view returns(bool) {
@@ -525,15 +439,26 @@ contract MasternodeRegistryV1 is
         internal view
         returns(ValidationStatus)
     {
+        (uint balance, uint last_block) = _getCollateralInfo(mninfo.owner);
+        return _checkStatus(mnstatus, mninfo, balance, last_block);
+    }
+
+    function _checkStatus(
+        Status storage mnstatus,
+        StorageMasternodeRegistryV1.Info memory mninfo,
+        uint balance,
+        uint last_block
+    )
+        internal view
+        returns(ValidationStatus)
+    {
         if (mnstatus.seq_payouts == 0) {
             return ValidationStatus.MNNotActive;
         }
 
-        if ((block.timestamp - mnstatus.last_heartbeat) >= MN_HEARTBEAT_INTERVAL_MAX) {
+        if (block.timestamp > (mnstatus.next_heartbeat + MN_HEARTBEAT_INTERVAL_MAX)) {
             return ValidationStatus.MNHeartbeat;
         }
-
-        (uint balance, uint last_block) = IMasternodeToken(address(token_proxy.impl())).balanceInfo(mninfo.owner);
 
         if (balance != mninfo.collateral) {
             return ValidationStatus.MNCollaterIssue;
@@ -544,6 +469,16 @@ contract MasternodeRegistryV1 is
         }
 
         return ValidationStatus.MNActive;
+    }
+
+    function _getCollateralInfo(address owner)
+        internal view
+        returns(
+            uint balance,
+            uint last_block
+        )
+    {
+        (balance, last_block) = IMasternodeToken(address(token_proxy.impl())).balanceInfo(owner);
     }
 
     //===
@@ -637,12 +572,21 @@ contract MasternodeRegistryV1 is
             return;
         }
 
+        (uint balance, uint last_block) = _getCollateralInfo(owner);
+
         StorageMasternodeRegistryV1.Info memory mninfo = _mnInfo(v1storage, masternode);
-        ValidationStatus check = _checkStatus(mn_status[masternode], mninfo);
+        ValidationStatus check = _checkStatus(mn_status[masternode], mninfo, balance, last_block);
 
         if (check == ValidationStatus.MNCollaterIssue) {
-            // Only if collateral issue!
-            _denounce(masternode, owner);
+            // Re-announce, if there is collateral left.
+            if (balance >= MN_COLLATERAL_V2_MIN) {
+                uint32 ipv4address = mninfo.ipv4address;
+                bytes32[2] memory enode = [mninfo.enode_0, mninfo.enode_1];
+
+                _announce(masternode, owner, balance, ipv4address, enode);
+            } else {
+                _denounce(masternode, owner);
+            }
         }
     }
 
@@ -682,18 +626,109 @@ contract MasternodeRegistryV1 is
         }
     }
 
-    // IGovernedContract
+    // IMasternodeRegistryV2
     //---------------------------------
+    function collateralLimits() external pure returns (uint min, uint max) {
+        min = MN_COLLATERAL_V2_MIN;
+        max = MN_COLLATERAL_MAX;
+    }
+
+    function canHeartbeat(address masternode) external view returns(bool can_heartbeat) {
+        Status storage s = mn_status[masternode];
+
+        return _isActive(masternode, s) && (s.next_heartbeat <= block.timestamp);
+    }
+
+    function canInvalidate(address /*masternode*/) external view returns(bool) {
+        return false;
+    }
+
+    /// @notice this migration function triggered by governance upgrade when replacing another version
+    /// @dev see migrateStatusPartial() - masternode status must be migrated before governance upgrade!
+    /// @param _oldImpl the previous masternode registry being migrated
+    function _migrate(IGovernedContract _oldImpl) internal {
+        require(migration_complete, "cannot upgrade before migration");
+        require(validator_list.length > 0, "validator list empty");
+        // Dispose
+        v1storage.kill();
+
+        MasternodeRegistryV2_3 oldinstance = MasternodeRegistryV2_3(address(_oldImpl));
+        v1storage = oldinstance.v1storage();
+
+        // Migration data
+        mn_announced = oldinstance.mn_announced();
+        if (current_masternode == oldinstance.current_masternode()) {
+            current_payouts = oldinstance.current_payouts();
+        }
+
+        // Other data
+        mn_ever_collateral = oldinstance.mn_ever_collateral();
+        mn_active_collateral = oldinstance.mn_active_collateral();
+        mn_announced_collateral = oldinstance.mn_announced_collateral();
+        last_block_number = block.number;
+    }
+
+    /// @notice migrate masternode statuses from the current masternode registry
+    /// @dev We migrate the available masternodes till gas left is less than or equal to 10000,
+    /// @dev so this function will use the gas limit to determine how many masternodes
+    /// @dev that will be migrated at a ago.
+    function migrateStatusPartial() external noReentry {
+        require(!migration_complete, "migration already done");
+
+        // address(uint160()) cast converts from non-payable address to allow cast to IGovernedProxy()
+        IGovernedContract current_mnreg_impl = IGovernedProxy(address(uint160(proxy))).impl();
+        require(address(current_mnreg_impl) != address(this), "cannot migrate from self");
+
+        MasternodeRegistryV2_3 old_registry = MasternodeRegistryV2_3(address(current_mnreg_impl));
+
+        current_masternode = old_registry.current_masternode();
+        mn_active = old_registry.mn_active();
+        uint currentlength = validator_list.length + inactive_count;
+        require(currentlength < mn_active, "migration already complete");
+
+        for (uint i = currentlength; i < mn_active; ++i) {
+            // limit chunk of MN migrated using gas left
+            if (gasleft() <= 500000) break;
+
+            address mn = old_registry.validator_list(i);
+
+            // skip inactive masternodes
+            if (!old_registry.isActive(mn) || old_registry.canHeartbeat(mn)) {
+                inactive_count++;
+                continue;
+            }
+
+            Status memory status;
+            (
+                status.sw_features,
+                status.next_heartbeat,
+                status.inactive_since,
+                , // status.validator_index is reset when adding to the list
+                , // status.invalidations not copied (not relevant to mn registry v2.2)
+                status.seq_payouts,
+                // status.last_vote_epoch not copied (not relevant to mn registry v2.2)
+            ) = old_registry.mn_status(mn);
+
+            status.validator_index = validator_list.length;
+            validator_list.push(mn);
+            mn_status[mn] = status;
+        }
+
+        if (validator_list.length >= (mn_active - inactive_count)) {
+            mn_active = validator_list.length;
+            migration_complete = true;
+        }
+    }
+
+    /// @notice this function triggered by governance upgrade when this contract is replaced by a newer version
+    /// @dev see migrateStatusPartial() - masternode status must be migrated before governance upgrade!
+    /// @param _newImpl the new masternode registry that is replacing this one
     function _destroy(IGovernedContract _newImpl) internal {
         v1storage.setOwner(_newImpl);
     }
 
-    // IBlockReward
-    //---------------------------------
-    function reward()
-        external payable
-        noReentry
-    {
+    /// @notice the reward() function from IBlockReward is called as part of the block reward loop to pay the masternode
+    function reward() external payable noReentry {
         // NOTE: ensure to move of remaining from the previous times to Treasury
         //---
         uint diff = address(this).balance - msg.value;
@@ -708,87 +743,67 @@ contract MasternodeRegistryV1 is
         if (msg.value == REWARD_MASTERNODE_V1) {
             // SECURITY: this check is essential against Masternode skip attacks!
             require(last_block_number < block.number, "Call outside of governance!");
-            last_block_number = last_block_number;
+            last_block_number = block.number;
 
-            assert(gasleft() > GAS_RESERVE);
+            // Safety checks
             assert(msg.value == address(this).balance);
+            uint fractions = payments_per_block;
+            uint total_attempts = 0;
 
-            // solium-disable-next-line no-empty-blocks
-            while ((gasleft() > GAS_RESERVE) && !_reward()) {}
-        }
-    }
+            for (uint i = fractions; i > 0; --i) {
+                assert(gasleft() > GAS_RESERVE);
+                uint attempts = 0;
 
-    function _reward() internal returns(bool) {
-        //---
-        address masternode = current_masternode;
-        uint payouts = current_payouts;
-
-        if (masternode == address(0)) {
-            return true;
-        }
-
-        StorageMasternodeRegistryV1.Info memory mninfo = _mnInfo(v1storage, masternode);
-
-        Status storage mnstatus = mn_status[masternode];
-        uint invalidations = mnstatus.invalidations;
-        uint invalidation_since = mnstatus.invalidation_since;
-        ++payouts;
-
-        if (payouts < mnstatus.seq_payouts) {
-            current_payouts = payouts;
-        } else {
-            mnstatus.invalidations = 0;
-            mnstatus.invalidation_since = block.number;
-            current_masternode = mninfo.next;
-            current_payouts = 0;
-        }
-
-        // Reward logic
-        //---
-        ValidationStatus status = _checkStatus(mnstatus, mninfo);
-
-        if (status == ValidationStatus.MNActive) {
-            // solium-disable security/no-send
-            if (!_canReward(invalidations, invalidation_since) ||
-                mninfo.owner.send(msg.value)
-            ) {
-                return true;
+                // solium-disable-next-line no-empty-blocks
+                while ((gasleft() > GAS_RESERVE) && (total_attempts++ < 50) && (attempts++ < 10) && !_reward()) {}
             }
-            // solium-enable security/no-send
         }
-
-        // When not valid
-        //---
-        if (status == ValidationStatus.MNCollaterIssue) {
-            // Immediate
-            _denounce(masternode, mninfo.owner);
-        } else if (mnstatus.seq_payouts > 0) {
-            // Mark as inactive for later auto-cleanup
-            mnstatus.seq_payouts = 0;
-            mnstatus.inactive_since = block.timestamp;
-            _deactive_common(masternode, mninfo.collateral);
-            current_masternode = mninfo.next;
-            current_payouts = 0;
-
-            emit Deactivated(masternode);
-        } else if ((block.timestamp - mnstatus.inactive_since) > cleanup_period) {
-            // Auto-cleanup
-            _denounce(masternode, mninfo.owner);
-        }
-
-        return false;
     }
 
-    function _canReward(uint invalidations, uint invalidation_since) internal view returns(bool) {
-        if (mn_active < require_validation) {
+    /// @notice For each payment in a block (payments_per_block) this function is called to pay the next eligible masternode
+    function _reward() internal returns(bool) {
+        // skip when there's no masternodes
+        if (current_masternode == address(0)) {
             return true;
         }
 
-        uint threshold = block.number - invalidation_since;
-        threshold = (threshold / validation_period) + 1;
-        threshold /= 2;
+        // get the status of the current masternode
+        StorageMasternodeRegistryV1.Info memory mninfo = _mnInfo(v1storage, current_masternode);
+        Status storage mns = mn_status[current_masternode];
 
-        return (invalidations < threshold);
+        // move on to the next masternode if we are done paying
+        if (current_payouts >= mns.seq_payouts) {
+            current_masternode = mninfo.next;
+            current_payouts = 0;
+            mninfo = _mnInfo(v1storage, current_masternode);
+            mns = mn_status[current_masternode];
+        }
+
+        // pay valid masternodes
+        bool success = false;
+        ValidationStatus validation = _checkStatus(mns, mninfo);
+        if (validation == ValidationStatus.MNActive) {
+            uint reward_payment = REWARD_MASTERNODE_V1 / payments_per_block;
+            // solium-disable-next-line security/no-send
+            success = mninfo.owner.send(reward_payment);
+            current_payouts++;
+        // denounce invalid masternodes if they have a collateral issue or have been around too long
+        } else if ((validation == ValidationStatus.MNCollaterIssue) || ((block.timestamp - mns.inactive_since) > cleanup_period)) {
+            _denounce(current_masternode, mninfo.owner);
+        // deactivate invalid masternodes
+        } else if (mns.seq_payouts > 0) {
+            mns.seq_payouts = 0;
+            mns.inactive_since = block.timestamp;
+            _deactive_common(current_masternode, mninfo.collateral);
+            emit Deactivated(current_masternode);
+            current_masternode = mninfo.next;
+            current_payouts = 0;
+        } else {
+            current_masternode = mninfo.next;
+            current_payouts = 0;
+        }
+
+        return success;
     }
 
     //===
