@@ -1,4 +1,4 @@
-// Copyright 2020 The Energi Core Authors
+// Copyright 2021 The Energi Core Authors
 // This file is part of the Energi Core library.
 //
 // The Energi Core library is free software: you can redistribute it and/or modify
@@ -16,27 +16,30 @@
 
 'use strict';
 
-const HardforkRegistryV1 = artifacts.require('HardforkRegistryV1');
+const CheckpointRegistryV3 = artifacts.require('CheckpointRegistryV3');
 const common = require('../test/common');
 
 module.exports = async function(deployer, network) {
     try {
-        var hf_signer = common.hf_signer;
-        var hf_finalization_period = common.hf_finalization_period;
+        var checkpointSigner = common.cpp_signer;
+        var checkpointProxyAddress = '0x0000000000000000000000000000000000000306';
+        var masternodeRegistryProxyAddress = '0x0000000000000000000000000000000000000302';
 
-        console.log("Deploying HardforkRegistryV1 to " + network);
+        console.log("Deploying CheckpointRegistryV3 to " + network);
 
         if (network === "mainnet") {
-            hf_signer = '0x44D16E845ec2d2D6A99a10fe44EE99DA0541CF31';
-            hf_finalization_period = 30;
+            checkpointSigner = '0xBD1C57eACcfD1519E342F870C1c551983F839479';
         } else if (network === "testnet") {
-            hf_signer = '0x5b00118464fa6e73f9c2a4ea44e1cbfa9f5b83c6';
-            hf_finalization_period = 10;
+            checkpointSigner = '0xb1372ea07f6a92bc86fd5f8cdf468528f79f87ca';
+        } else {
+            // CheckpointRegistryV3 doesn't need to be deployed here for tests
+            // it will be deployed by the CheckpointRegistryV3.spec.js test file
+            return;
         }
 
         // since this uses GovernedContractAutoProxy, make sure we capture the new proxy address
-        await deployer.deploy(HardforkRegistryV1, common.default_address, hf_signer, hf_finalization_period);
-        var instance = await HardforkRegistryV1.deployed();
+        await deployer.deploy(CheckpointRegistryV3, checkpointProxyAddress, masternodeRegistryProxyAddress, checkpointSigner);
+        var instance = await CheckpointRegistryV3.deployed();
         var proxyAddress = await instance.proxy();
         console.log("   > proxy address:       " + proxyAddress);
     } catch (e) {
