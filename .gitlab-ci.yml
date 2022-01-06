@@ -54,15 +54,16 @@ clean-repo:
     - git checkout -- .
     - git clean -fdx -e node_modules .
 
+# TODO: this doesn't work, git branch -a shows only a detached head state
 # TODO: this actually tries to execute the merge, may not be the best way to check this
 # it will also fail for master branch merges
-branch-check:
-  stage: prepare
-  cache: []
-  extends: .merge-request-job
-  script:
-    - git branch -a
-    - if [[ "$(git merge origin/develop)" != "Already up to date." ]]; then echo "[Error] branch is not up to date with develop"; exit 1; fi
+#branch-check:
+#  stage: prepare
+#  cache: []
+#  extends: .merge-request-job
+#  script:
+#    - git branch -a
+#    - if [[ "$(git merge origin/develop)" != "Already up to date." ]]; then echo "[Error] branch is not up to date with develop"; exit 1; fi
 
 yarn-install:
   stage: prepare
