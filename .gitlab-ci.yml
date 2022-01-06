@@ -4,8 +4,6 @@ stages:
   - lint
   - build
   - test
-  - build-release
-  - deploy-release
 
 cache: &global_cache_configuration
   paths:
@@ -66,6 +64,8 @@ clean-repo:
 #    - if [[ "$(git merge origin/develop)" != "Already up to date." ]]; then echo "[Error] branch is not up to date with develop"; exit 1; fi
 
 yarn-install:
+  dependencies: []
+  needs: [clean-repo]
   stage: prepare
   cache:
     # inherit all global cache Settings
@@ -76,6 +76,8 @@ yarn-install:
     - yarn install
 
 lint:
+  dependencies: []
+  needs: [yarn-install]
   stage: lint
   cache:
     # inherit all global cache settings
@@ -88,17 +90,21 @@ lint:
     - yarn run lint
 
 build:
+  dependencies: []
+  needs: [yarn-install, lint]
   stage: build
   cache:
     # inherit all global cache settings
     <<: *global_cache_configuration
     # override the policy
-    policy: pull
+    # policy: pull
   extends: .merge-request-job
   script:
     - yarn run compile
 
 test:
+  dependencies: []
+  needs: [build]
   stage: test
   cache:
     # inherit all global cache settings
