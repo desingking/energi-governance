@@ -1,7 +1,7 @@
 # Node 12.11-alpine is our base image for building & testing
 FROM node:12.22-alpine
 
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates git
 
 # npm packages version
 ARG ganache_version="6.11.0"
