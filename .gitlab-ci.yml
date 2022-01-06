@@ -39,7 +39,6 @@ lint:
     # override the policy
     policy: pull
   extends: .merge-request-job
-  allow_failure: true
   script:
     - yarn run lint
 
