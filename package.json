@@ -18,7 +18,9 @@
     "test": "test"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "lint": "yarn run eslint truffle-config.js migrations test && yarn run solium -d src",
+    "compile": "truffle compile",
+    "test": "truffle test"
   },
   "repository": {
     "type": "git",
