@@ -45,7 +45,7 @@ lint:
 
 build:
   dependencies: []
-  needs: [yarn-install, lint]
+  needs: [lint]
   stage: build
   cache:
     # inherit all global cache settings
