@@ -19,7 +19,7 @@ cache: &global_cache_configuration
 
 yarn-install:
   dependencies: []
-  needs: [clean-repo]
+  needs: []
   stage: prepare
   cache:
     # inherit all global cache Settings
