@@ -9,3 +9,4 @@
 .envrc
 /.test-sol-report.xml
 /yarn-error.log
+/ganache.log

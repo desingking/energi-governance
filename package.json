@@ -20,8 +20,11 @@
     "test": "test"
   },
   "scripts": {
-    "lint": "yarn run eslint truffle-config.js migrations test && yarn run solium -d src",
+    "lint-es": "yarn run eslint truffle-config.js migrations test",
+    "lint-solidity": "yarn run solium -d src",
+    "lint": "yarn run lint-es && yarn run lint-solidity",
     "compile": "truffle compile",
+    "ganache": "ganache-cli --account='0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef,10000000000000000000000000' --account='0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdff,200000000000000000000000' --account='0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcfff,100000000000000000000000' --account='0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abffff,11000000000000000000000' --account='0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890afffff,1000000000000000000000' --account='0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890ffffff,1000000000' --account='0x1234567890abcdef1234567890abcdef1234567890abcdef123456789fffffff,0' --account='0x1234567890abcdef1234567890abcdef1234567890abcdef12345678ffffffff,100000000000000000000000' --account='0x1234567890abcdef1234567890abcdef1234567890abcdef1234567fffffffff,100000000000000000000000' --account='0x1234567890abcdef1234567890abcdef1234567890abcdef123456ffffffffff,100000000000000000000000' --account='0x1234567890abcdef1234567890abcdef1234567890abcdef12345fffffffffff,10000000000000000000000000' -l 10000000 2>&1 > ganache.log &",
     "test": "truffle test"
   },
   "repository": {
