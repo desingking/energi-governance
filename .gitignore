@@ -8,3 +8,4 @@
 /node_modules/
 .envrc
 /.test-sol-report.xml
+/yarn-error.log
