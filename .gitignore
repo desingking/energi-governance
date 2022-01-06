@@ -5,5 +5,6 @@
 #   git config --global core.excludesfile ~/.gitignore_global
 
 /build/
+/node_modules/
 .envrc
 /.test-sol-report.xml
