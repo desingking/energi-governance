@@ -61,6 +61,7 @@ branch-check:
   cache: []
   extends: .merge-request-job
   script:
+    - git branch -a
     - if [[ "$(git merge origin/develop)" != "Already up to date." ]]; then echo "[Error] branch is not up to date with develop"; exit 1; fi
 
 yarn-install:
