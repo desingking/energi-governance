@@ -35,7 +35,8 @@ contract TreasuryV2 is TreasuryV1 {
     // new budget proposal fee
     uint constant internal FEE_BUDGET_V2 = 300 ether;
 
-    constructor(address _proxy, IGovernedProxy _mnregistry_proxy, uint _superblock_cycle) public TreasuryV1(_proxy, _mnregistry_proxy, _superblock_cycle) {}
+    constructor(address _proxy, IGovernedProxy _mnregistry_proxy, uint _superblock_cycle)
+    public TreasuryV1(_proxy, _mnregistry_proxy, _superblock_cycle) {}
 
     // create a new budget proposal
     function propose(uint _amount, uint _ref_uuid, uint _period)
