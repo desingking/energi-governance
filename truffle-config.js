@@ -17,7 +17,7 @@ module.exports = {
         reporterOptions: {
             "reporterEnabled": mochaReporters,
             "mochaJunitReporterReporterOptions": {
-                "mochaFile": ".test-sol-report.xml"
+                "mochaFile": ".test-results.xml"
             }
         }
     },

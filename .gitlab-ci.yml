@@ -68,3 +68,10 @@ test:
   script:
     - yarn run ganache
     - yarn run test
+  artifacts:
+    when: always
+    paths:
+      - .test-results.xml
+    reports:
+      junit: .test-results.xml
+    expire_in: 2 day
