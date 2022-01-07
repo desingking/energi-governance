@@ -14,7 +14,7 @@
     "mocha-multi-reporters": "^1.5.1",
     "truffle": "5.4.0"
   },
-  "description": "This directory contains the Energi Governance smart contracts used by the Energi Core node as a key part of consensus. Most of these contracts were initially deployed as a part of the genesis block on the Energi Testnet and Energi Mainnet. They can be tested against a local ganache instance. All commands given here unless otherwise specified are meant to be run from the root of the repository, where [truffle-config.js](truffle-config.js) resides.",
+  "description": "Here is the Energi Governance repository. This collection of smart contracts forms the basis of governance for the Energi DAO. These contracts are used by the [Energi Core Node](../energi) as a part of core consensus for the Energi blockchain. This repository may be used by any project seeking to interact with the Energi DAO.",
   "main": "truffle-config.js",
   "directories": {
     "test": "test"
