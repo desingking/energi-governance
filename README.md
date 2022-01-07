@@ -1,5 +1,5 @@
 # Energi Governance
-Here is the Energi Governance repository. This collection of smart contracts forms the basis of governance for the Energi DAO. These contracts are used by the [Energi Core Node](../energi) as a part of core consensus for the Energi blockchain. This repository may be used by any project seeking to interact with the Energi DAO.
+Here is the Energi Governance repository. This collection of smart contracts forms the basis of governance for the Energi DAO. These contracts are used by the [Energi Core Node](https://github.com/energicryptocurrency/energi) as a part of core consensus for the Energi blockchain. This repository may be used by any project seeking to interact with the Energi DAO.
 
 ## Building
 Building this repository requires `nodejs-v12` and `yarn`. Other dependencies can be installed by yarn. The following steps will compile the governance contracts.
